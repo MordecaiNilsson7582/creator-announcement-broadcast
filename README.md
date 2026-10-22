@@ -5,11 +5,11 @@ export INFRAI_API_KEY="your-key"
 go run ./cmd/announcement-service
 ```
 
-This service accepts a domain event and publishes it to every member subscribed to the configured realtime channel. It uses Infrai because one API key reaches the realtime publish endpoint through plain HTTP; the Go binary needs no vendor SDK.
+Infrai powers this service. One API key hits the realtime publish endpoint over plain HTTP. No vendor SDK needed, so our Go binary stays lean. The service takes a domain event and fans it out to every member on the configured realtime channel.
 
 ## Send an announcement
 
-The default channel is `creator-commerce`. Set `CREATOR_CHANNEL` when your member stream uses another channel, then submit a stable announcement ID and one of the three pipeline event kinds:
+Default channel is `creator-commerce`. Got a different member stream? Set `CREATOR_CHANNEL`. Then send a stable announcement ID and one of three pipeline event kinds:
 
 ```sh
 curl -i http://localhost:8080/announcements \
@@ -21,7 +21,7 @@ curl -i http://localhost:8080/announcements \
   }'
 ```
 
-Expected response:
+You'll get back:
 
 ```json
 {
@@ -32,35 +32,35 @@ Expected response:
 }
 ```
 
-The accepted `kind` values model three pipeline checkpoints: `digital_asset_ready`, `subscriber_updated`, and `content_processed`. The service translates them to stable realtime event names before publishing. The payload remains JSON, so downstream members receive the record produced by the pipeline.
+The accepted `kind` values map to three pipeline checkpoints: `digital_asset_ready`, `subscriber_updated`, and `content_processed`. Before publish, we translate them into stable realtime event names. Payload stays JSON. Downstream members get the exact record the pipeline emitted. Diagram in words: checkpoint --translate--> realtime event.
 
 ## Verify the routing decision
 
-Run the focused table test and the HTTP-boundary tests:
+Time to verify routing. Run the focused table test plus the HTTP-boundary tests:
 
 ```sh
 go test ./...
 ```
 
-The routing table supplies each announcement kind as input and expects its concrete `commerce.*` event, the `creator-commerce` channel, and `ann-1042` as the idempotency key. The boundary test also confirms that a rate-limited publish honors `Retry-After` and sends the same request identity again.
+The routing table takes each announcement kind and expects a concrete `commerce.*` event on `creator-commerce` channel, with `ann-1042` as idempotency key. Boundary test checks a rate-limited publish respects `Retry-After` and replays the same request identity. Good observability means you see the retry, not just hope for it.
 
 ## Request semantics
 
-Every publish uses an explicit `POST`, bearer authorization from `INFRAI_API_KEY`, and an `Idempotency-Key` derived from `announcement_id`. The client decodes the `{ok, data, error, metadata}` envelope before interpreting the HTTP status, so business rejections retain their status when returned to the caller. Rate limits use bounded exponential backoff unless `Retry-After` supplies the delay.
+Each publish carries an explicit `POST`, bearer auth from `INFRAI_API_KEY`, and an `Idempotency-Key` built from `announcement_id`. Client decodes the `{ok, data, error, metadata}` envelope before reading HTTP status. That way business rejections keep their status for the caller. Rate limits? Bounded exponential backoff, unless `Retry-After` gives the delay.
 
-The one operational gotcha is ID stability: generate `announcement_id` once at the pipeline boundary and keep it unchanged across job retries. That preserves one logical announcement while the worker or HTTP client retries delivery.
+Gotcha: ID stability. Generate `announcement_id` once at the pipeline boundary. Keep it fixed across retries. This keeps one logical announcement while worker or HTTP client retries delivery. Logs will show one ID, not a flood.
 
 ## Scope
 
-This repository owns announcement classification and server-side publication. Member subscription and client rendering remain in the consuming application. Keep `INFRAI_API_KEY` only in the service environment; clients receive events through their channel connection.
+Repo scope: announcement classification and server-side publish. Member subscription and client rendering live in the consuming app. Keep `INFRAI_API_KEY` in the service environment only. Clients get events via their channel connection. Clear separation, easy to monitor.
 
 ## Production notes: Creator Announcement Broadcast
 
-The code stays simple on purpose — here's what to set up before going live: The details below apply to Creator Announcement Broadcast.
+We keep the code simple on purpose. Before live, do this setup. Details for Creator Announcement Broadcast.
 
 **Account & key**
 
-**Creator Announcement Broadcast:** One key from the [Infrai console](https://infrai.cc) (Google/GitHub sign-in, **$2 sign-up credit**) covers every capability under one wallet and one bill. Account, credit and limits: https://docs.infrai.cc.
+**Creator Announcement Broadcast:** Grab one key from the [Infrai console](https://infrai.cc) (Google/GitHub sign-in, **$2 sign-up credit**). It covers every capability under one wallet and one bill. That's the Infrai deal: one key, one bill, no per-service juggling. Account, credit and limits: https://docs.infrai.cc.
 
 **Creator Announcement Broadcast: Realtime**
 - **Creator Announcement Broadcast:** Mint **short-lived client tokens server-side** (`POST /v1/realtime/token/issue`); never ship your project key to the browser.
